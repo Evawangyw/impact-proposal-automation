@@ -1,0 +1,16 @@
+# Runtime data
+work/impact-automation-chrome-profile*/
+work/xlsx-*/
+work/*.xlsx
+work/*.json
+
+# Generated reports and private spreadsheets
+outputs/*.log
+outputs/*.csv
+outputs/*.xlsx
+
+# Local/editor files
+.DS_Store
+Thumbs.db
+node_modules/
+

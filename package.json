@@ -1,0 +1,10 @@
+{
+  "name": "impact-proposal-console",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check outputs/impact-proposal-workflow-ui.mjs && node --check outputs/impact-proposal-ui-server.mjs && node --check outputs/impact-proposal-ui.js && node --check outputs/impact-proposal-standalone-runner.mjs",
+    "start": "node outputs/impact-proposal-standalone-runner.mjs"
+  }
+}

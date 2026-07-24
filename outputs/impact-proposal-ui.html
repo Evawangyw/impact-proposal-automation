@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impact 邀约控制台</title>
+  <link rel="stylesheet" href="/impact-proposal-ui.css">
+</head>
+<body>
+  <main class="app">
+    <section class="panel input-panel">
+      <div class="title-row">
+        <div>
+          <h1>Impact 邀约控制台</h1>
+          <p>输入联盟客名字，检查搜索结果和绿勾状态；没绿勾时自动填写邀约表。</p>
+        </div>
+        <div id="health" class="badge muted">连接中</div>
+      </div>
+
+      <form id="runForm" class="form">
+        <label for="partnerName">联盟客名字</label>
+        <div class="search-row">
+          <input id="partnerName" name="partnerName" autocomplete="off" placeholder="例如 CREATIVE PRODUCTS">
+          <button id="runButton" type="submit">开始排查并填表</button>
+        </div>
+
+        <div class="mode-row" role="group" aria-label="运行模式">
+          <label class="toggle">
+            <input id="stopBeforeSend" type="checkbox">
+            <span>只填表，停在 Send Proposal 前</span>
+          </label>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>步骤结果</h2>
+        <span id="jobStatus" class="badge muted">等待开始</span>
+      </div>
+      <div id="steps" class="steps"></div>
+    </section>
+
+    <section id="choicePanel" class="panel choice-panel" hidden>
+      <div class="section-head">
+        <h2>选择搜索结果</h2>
+      </div>
+      <p id="choiceHint"></p>
+      <div id="choiceOptions" class="choice-options"></div>
+    </section>
+
+    <section class="panel result-panel">
+      <div class="section-head">
+        <h2>最终结果</h2>
+      </div>
+      <pre id="resultText">还没有运行任务。</pre>
+    </section>
+  </main>
+
+  <script src="/impact-proposal-ui.js"></script>
+</body>
+</html>
