@@ -9,6 +9,13 @@ const resultText = document.querySelector('#resultText');
 const choicePanel = document.querySelector('#choicePanel');
 const choiceHint = document.querySelector('#choiceHint');
 const choiceOptions = document.querySelector('#choiceOptions');
+const partnerListText = document.querySelector('#partnerListText');
+const partnerListFile = document.querySelector('#partnerListFile');
+const matchButton = document.querySelector('#matchButton');
+const queueMatchedButton = document.querySelector('#queueMatchedButton');
+const batchStatus = document.querySelector('#batchStatus');
+const matchSummary = document.querySelector('#matchSummary');
+const matchResults = document.querySelector('#matchResults');
 
 const stateLabel = {
   waiting: '等待',
@@ -19,6 +26,8 @@ const stateLabel = {
 
 let pollTimer = null;
 let activeJobId = null;
+let batchJobIds = [];
+let latestMatch = null;
 
 const defaultSteps = [
   { key: 'listLookup', label: '名单匹配', state: 'waiting', message: '等待开始' },
@@ -62,7 +71,7 @@ function returnToNameInput(clearValue = false) {
 }
 
 function renderChoice(job) {
-  if (!choicePanel || !job.choiceRequest) {
+  if (!choicePanel || !job?.choiceRequest) {
     if (choicePanel) choicePanel.hidden = true;
     return;
   }
@@ -107,11 +116,12 @@ async function submitChoice(jobId, choiceIndex) {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     resultText.textContent = data.error || '选择失败，请重试。';
-    renderChoice({ choiceRequest: null });
+    renderChoice(null);
     return;
   }
   choicePanel.hidden = true;
-  await pollJob(jobId);
+  if (batchJobIds.length) await pollBatch();
+  else await pollJob(jobId);
 }
 
 async function checkHealth() {
@@ -122,7 +132,7 @@ async function checkHealth() {
       setBadge(health, '浏览器未连接', 'failed');
       return data;
     }
-    setBadge(health, data.active ? '有任务运行中' : '已连接', data.active ? 'running' : 'done');
+    setBadge(health, data.active ? '有任务运行中' : data.queued ? `已连接 · 队列 ${data.queued}` : '已连接', data.active ? 'running' : 'done');
     return data;
   } catch {
     setBadge(health, '未连接', 'failed');
@@ -175,6 +185,156 @@ async function pollJob(id) {
   }
 }
 
+function renderBatchJobs(jobs) {
+  const total = jobs.length;
+  const done = jobs.filter((job) => job.status === 'done').length;
+  const failed = jobs.filter((job) => job.status === 'failed').length;
+  const queued = jobs.filter((job) => job.status === 'queued').length;
+  const active = jobs.find((job) => job.status === 'waiting_choice')
+    || jobs.find((job) => job.status === 'running')
+    || jobs.find((job) => job.status === 'queued')
+    || jobs[jobs.length - 1];
+
+  setBadge(batchStatus, `队列 ${done + failed}/${total}`, failed ? 'failed' : total === done ? 'done' : 'running');
+  setBadge(jobStatus, active?.status === 'waiting_choice' ? '等待你选择结果' : total === done + failed ? '批量完成' : `批量运行中 · 待处理 ${queued}`, total === done + failed ? 'done' : 'running');
+  renderSteps(active?.steps || defaultSteps);
+  renderChoice(active);
+
+  const lines = jobs.map((job, index) => {
+    const status = job.status === 'done' ? '完成'
+      : job.status === 'failed' ? `失败：${job.error || ''}`
+        : job.status === 'running' ? '运行中'
+          : job.status === 'waiting_choice' ? '等待选择'
+            : '排队中';
+    return `${index + 1}. ${job.name} - ${status}`;
+  });
+  resultText.textContent = lines.join('\n');
+}
+
+async function pollBatch() {
+  if (!batchJobIds.length) return;
+  const res = await fetch(`/api/jobs?ids=${encodeURIComponent(batchJobIds.join(','))}`);
+  const data = await res.json();
+  const jobs = data.jobs || [];
+  renderBatchJobs(jobs);
+  await checkHealth();
+
+  const stillRunning = jobs.some((job) => ['queued', 'running', 'waiting_choice'].includes(job.status));
+  if (stillRunning) {
+    pollTimer = window.setTimeout(pollBatch, 1500);
+    return;
+  }
+
+  activeJobId = null;
+  batchJobIds = [];
+  runButton.disabled = false;
+  queueMatchedButton.disabled = !latestMatch?.matched?.length;
+  setBadge(jobStatus, '批量完成', 'done');
+  returnToNameInput(false);
+}
+
+function renderMatch(result) {
+  latestMatch = result;
+  const matched = result.matched || [];
+  const unmatched = result.unmatchedNeeded || [];
+  matchSummary.textContent = `导入 ${result.importedCount} 个名称；本地待邀约 ${result.neededCount} 个；匹配到 ${matched.length} 个；未匹配 ${unmatched.length} 个。`;
+  queueMatchedButton.disabled = matched.length === 0;
+  setBadge(batchStatus, matched.length ? `匹配 ${matched.length} 个` : '没有匹配项', matched.length ? 'done' : 'failed');
+
+  matchResults.innerHTML = '';
+  const matchedList = document.createElement('div');
+  matchedList.className = 'match-list';
+  matched.slice(0, 80).forEach((item) => {
+    const row = document.createElement('article');
+    row.className = 'match-item';
+    row.innerHTML = `
+      <strong></strong>
+      <span></span>
+    `;
+    row.querySelector('strong').textContent = item.name;
+    row.querySelector('span').textContent = `导入名：${item.importedName} · 匹配度 ${Math.round(item.score * 100)}% · ${item.source || ''} 行 ${item.row || ''}`;
+    matchedList.appendChild(row);
+  });
+  matchResults.appendChild(matchedList);
+
+  if (matched.length > 80) {
+    const more = document.createElement('p');
+    more.textContent = `还有 ${matched.length - 80} 个匹配项未显示，但会一起加入队列。`;
+    matchResults.appendChild(more);
+  }
+}
+
+partnerListFile.addEventListener('change', async () => {
+  const file = partnerListFile.files?.[0];
+  if (!file) return;
+  partnerListText.value = await file.text();
+  setBadge(batchStatus, '文件已读取', 'done');
+});
+
+matchButton.addEventListener('click', async () => {
+  const text = partnerListText.value.trim();
+  if (!text) {
+    setBadge(batchStatus, '请先粘贴或选择名单', 'failed');
+    return;
+  }
+
+  matchButton.disabled = true;
+  queueMatchedButton.disabled = true;
+  setBadge(batchStatus, '匹配中', 'running');
+  matchSummary.textContent = '正在和本地待邀约名单匹配。';
+  matchResults.innerHTML = '';
+  try {
+    const res = await fetch('/api/match-partners', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '匹配失败');
+    renderMatch(data);
+  } catch (error) {
+    setBadge(batchStatus, '匹配失败', 'failed');
+    matchSummary.textContent = error.message || String(error);
+  } finally {
+    matchButton.disabled = false;
+  }
+});
+
+queueMatchedButton.addEventListener('click', async () => {
+  const matched = latestMatch?.matched || [];
+  if (!matched.length) return;
+  window.clearTimeout(pollTimer);
+  queueMatchedButton.disabled = true;
+  runButton.disabled = true;
+  setBadge(batchStatus, '加入队列中', 'running');
+  resultText.textContent = '正在创建批量任务。';
+
+  try {
+    const healthState = await checkHealth();
+    if (!healthState?.automationConnected) {
+      throw new Error('独立 Chrome 没有连接。请先启动 runner，并在弹出的 Chrome 里登录 Impact。');
+    }
+    const res = await fetch('/api/run-batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        names: matched.map((item) => ({ name: item.name, importedName: item.importedName })),
+        stopBeforeSendProposalButton: stopBeforeSend.checked,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '批量任务启动失败');
+    batchJobIds = (data.jobs || []).map((job) => job.id);
+    activeJobId = batchJobIds[0] || null;
+    await pollBatch();
+  } catch (error) {
+    setBadge(batchStatus, '启动失败', 'failed');
+    resultText.textContent = error.message || String(error);
+    runButton.disabled = false;
+    queueMatchedButton.disabled = !latestMatch?.matched?.length;
+  }
+});
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   const name = input.value.trim();
@@ -184,6 +344,7 @@ form.addEventListener('submit', async (event) => {
   }
 
   window.clearTimeout(pollTimer);
+  batchJobIds = [];
   choicePanel.hidden = true;
   runButton.disabled = true;
   setBadge(jobStatus, '启动中', 'running');
@@ -217,7 +378,8 @@ form.addEventListener('submit', async (event) => {
 });
 
 window.addEventListener('focus', () => {
-  if (activeJobId) pollJob(activeJobId);
+  if (batchJobIds.length) pollBatch();
+  else if (activeJobId) pollJob(activeJobId);
   checkHealth();
 });
 

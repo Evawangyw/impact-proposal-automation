@@ -63,6 +63,54 @@ function impactSearchName(value) {
     .trim();
 }
 
+function nameMatchScore(left, right) {
+  const a = normalizeName(left);
+  const b = normalizeName(right);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const compactA = compactName(left);
+  const compactB = compactName(right);
+  if (compactA && compactA === compactB) return 0.98;
+  if (a.includes(b) || b.includes(a)) return 0.92;
+  if (compactA.includes(compactB) || compactB.includes(compactA)) return 0.9;
+
+  const tokensA = new Set(a.split(/\s+/).filter(Boolean));
+  const tokensB = new Set(b.split(/\s+/).filter(Boolean));
+  if (!tokensA.size || !tokensB.size) return 0;
+  let hits = 0;
+  for (const token of tokensA) if (tokensB.has(token)) hits += 1;
+  return hits / Math.max(tokensA.size, tokensB.size);
+}
+
+function findBestPartnerMatch(partners, name, threshold = 0.75) {
+  let best = null;
+  for (const partner of partners) {
+    const score = nameMatchScore(partner.name, name);
+    if (score >= threshold && (!best || score > best.score)) {
+      best = { partner, score };
+    }
+  }
+  return best;
+}
+
+export function parsePartnerNames(text) {
+  const names = new Set();
+  const raw = String(text || '').replace(/^\uFEFF/, '');
+  for (const line of raw.split(/\r?\n/)) {
+    const cells = line.split(/\t|,/).map((cell) => cell.replace(/^"|"$/g, '').trim()).filter(Boolean);
+    if (cells.length === 0) continue;
+    if (cells.length === 1) {
+      if (!/^(name|partner|partner name|publisher|publisher name)$/i.test(cells[0])) names.add(cells[0]);
+      continue;
+    }
+    for (const cell of cells) {
+      if (/^(name|partner|partner name|publisher|publisher name)$/i.test(cell)) continue;
+      if (/[a-z0-9]/i.test(cell) && cell.length <= 120) names.add(cell);
+    }
+  }
+  return [...names];
+}
+
 function normalizeType(value) {
   return String(value || '')
     .toLowerCase()
@@ -160,10 +208,52 @@ export async function loadUnsentPartners() {
 
 export async function findPartnerInList(name) {
   const partners = await loadUnsentPartners();
-  const target = partners.find((row) => normalizeName(row.name) === normalizeName(name))
-    || partners.find((row) => normalizeName(row.name).includes(normalizeName(name)))
-    || partners.find((row) => normalizeName(name).includes(normalizeName(row.name)));
-  return target || null;
+  return findBestPartnerMatch(partners, name, 0.7)?.partner || null;
+}
+
+export async function matchImportedPartnerNames(textOrNames) {
+  const importedNames = Array.isArray(textOrNames) ? textOrNames : parsePartnerNames(textOrNames);
+  const partners = await loadUnsentPartners();
+  const usedImported = new Set();
+  const matched = [];
+  const unmatchedNeeded = [];
+
+  for (const partner of partners) {
+    let best = null;
+    for (let index = 0; index < importedNames.length; index += 1) {
+      if (usedImported.has(index)) continue;
+      const importedName = importedNames[index];
+      const score = nameMatchScore(partner.name, importedName);
+      if (score >= 0.75 && (!best || score > best.score)) {
+        best = { index, importedName, score };
+      }
+    }
+    if (best) {
+      usedImported.add(best.index);
+      matched.push({
+        name: partner.name,
+        importedName: best.importedName,
+        score: Number(best.score.toFixed(3)),
+        row: partner.row,
+        source: partner.source,
+        type: partner.type,
+      });
+    } else {
+      unmatchedNeeded.push({
+        name: partner.name,
+        row: partner.row,
+        source: partner.source,
+        type: partner.type,
+      });
+    }
+  }
+
+  return {
+    importedCount: importedNames.length,
+    neededCount: partners.length,
+    matched,
+    unmatchedNeeded,
+  };
 }
 
 async function clearMarketplaceFilters(page) {

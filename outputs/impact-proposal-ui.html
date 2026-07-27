@@ -33,6 +33,24 @@
       </form>
     </section>
 
+    <section class="panel batch-panel">
+      <div class="section-head">
+        <h2>批量导入 partner 列表</h2>
+        <span id="batchStatus" class="badge muted">等待导入</span>
+      </div>
+      <p>粘贴 Impact 导出的 partner 名单，或选择 TXT/CSV 文件。系统会自动匹配表格里还需要邀约的名称。</p>
+      <div class="batch-grid">
+        <textarea id="partnerListText" placeholder="一行一个名字，或直接粘贴 CSV 内容"></textarea>
+        <div class="batch-actions">
+          <input id="partnerListFile" type="file" accept=".txt,.csv,.tsv">
+          <button id="matchButton" type="button">导入并匹配</button>
+          <button id="queueMatchedButton" type="button" disabled>匹配项加入队列</button>
+        </div>
+      </div>
+      <div id="matchSummary" class="match-summary">还没有导入名单。</div>
+      <div id="matchResults" class="match-results"></div>
+    </section>
+
     <section class="panel">
       <div class="section-head">
         <h2>步骤结果</h2>

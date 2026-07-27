@@ -48,12 +48,14 @@ function newSteps() {
   ];
 }
 
-function createJob(name, options) {
+function createJob(name, options = {}) {
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const job = {
     id,
     name,
     options,
+    batchId: options.batchId || null,
+    importedName: options.importedName || null,
     status: 'queued',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -61,9 +63,28 @@ function createJob(name, options) {
     events: [],
     result: null,
     error: null,
+    choiceRequest: null,
+    choiceResolver: null,
   };
   jobs.set(id, job);
   return job;
+}
+
+function publicJob(job) {
+  return {
+    id: job.id,
+    name: job.name,
+    importedName: job.importedName,
+    batchId: job.batchId,
+    status: job.status,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    steps: job.steps,
+    events: job.events,
+    result: job.result,
+    error: job.error,
+    choiceRequest: job.choiceRequest || null,
+  };
 }
 
 function updateJob(job, event) {
@@ -174,6 +195,12 @@ async function serveFile(res, file) {
   res.end(body);
 }
 
+function jobList(url) {
+  const ids = (url.searchParams.get('ids') || '').split(',').map((id) => id.trim()).filter(Boolean);
+  const source = ids.length ? ids.map((id) => jobs.get(id)).filter(Boolean) : [...jobs.values()];
+  return source.map(publicJob);
+}
+
 function createServer() {
   return http.createServer(async (req, res) => {
     try {
@@ -182,6 +209,7 @@ function createServer() {
       if (req.method === 'GET' && url.pathname === '/') return serveFile(res, 'impact-proposal-ui.html');
       if (req.method === 'GET' && url.pathname === '/impact-proposal-ui.css') return serveFile(res, 'impact-proposal-ui.css');
       if (req.method === 'GET' && url.pathname === '/impact-proposal-ui.js') return serveFile(res, 'impact-proposal-ui.js');
+
       if (req.method === 'GET' && url.pathname === '/api/health') {
         const queued = [...jobs.values()].filter((job) => job.status === 'queued').length;
         return json(res, 200, {
@@ -192,14 +220,43 @@ function createServer() {
           mappings: workflow.mappings(),
         });
       }
+
+      if (req.method === 'GET' && url.pathname === '/api/jobs') {
+        return json(res, 200, { jobs: jobList(url) });
+      }
+
       if (req.method === 'POST' && url.pathname === '/api/run') {
         if (activeJobId) return json(res, 409, { error: '当前已有任务在运行，请等它结束后再开始下一个。', activeJobId });
         const body = await readBody(req);
         const name = String(body.name || '').trim();
         if (!name) return json(res, 400, { error: '请输入联盟客名字。' });
         const job = createJob(name, { stopBeforeSendProposalButton: body.stopBeforeSendProposalButton });
-        return json(res, 200, job);
+        return json(res, 200, publicJob(job));
       }
+
+      if (req.method === 'POST' && url.pathname === '/api/match-partners') {
+        const body = await readBody(req);
+        const result = await workflow.matchImportedPartnerNames(body.text || body.names || '');
+        return json(res, 200, result);
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/run-batch') {
+        if (activeJobId) return json(res, 409, { error: '当前已有任务在运行，请等它结束后再导入批量任务。', activeJobId });
+        const body = await readBody(req);
+        const names = Array.isArray(body.names) ? body.names : [];
+        if (!names.length) return json(res, 400, { error: '没有可加入队列的匹配对象。' });
+        const batchId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        const created = names
+          .map((item) => (typeof item === 'string' ? { name: item } : item))
+          .filter((item) => String(item.name || '').trim())
+          .map((item) => createJob(String(item.name).trim(), {
+            batchId,
+            importedName: item.importedName || null,
+            stopBeforeSendProposalButton: body.stopBeforeSendProposalButton,
+          }));
+        return json(res, 200, { batchId, jobs: created.map(publicJob) });
+      }
+
       if (req.method === 'POST' && url.pathname.match(/^\/api\/jobs\/[^/]+\/choice$/)) {
         const id = decodeURIComponent(url.pathname.split('/')[3]);
         const job = jobs.get(id);
@@ -217,12 +274,14 @@ function createServer() {
         resolver({ choiceIndex });
         return json(res, 200, { ok: true });
       }
+
       if (req.method === 'GET' && url.pathname.startsWith('/api/jobs/')) {
         const id = decodeURIComponent(url.pathname.split('/').pop());
         const job = jobs.get(id);
         if (!job) return json(res, 404, { error: '没有找到这个任务。' });
-        return json(res, 200, job);
+        return json(res, 200, publicJob(job));
       }
+
       return json(res, 404, { error: 'Not found' });
     } catch (error) {
       return json(res, 500, { error: error?.message || String(error) });
