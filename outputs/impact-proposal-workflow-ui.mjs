@@ -830,9 +830,13 @@ export async function prepareByName(name, options = {}) {
     throw new Error(`未绿勾名单里找不到：${name}`);
   }
 
-  const config = resolveTypeConfig(partner.type);
-  if (!config) throw new Error(`没有 Type 映射：${partner.type}`);
-  await emit(options, 'listLookup', 'done', `名单匹配成功：${partner.name}`, { partner });
+  const manualType = String(options.manualType || '').trim();
+  const config = resolveTypeConfig(partner.type) || resolveTypeConfig(manualType);
+  if (!config) {
+    throw new Error(`没有 Type 映射：${partner.type || '(空)'}。可以在控制台的“手动 Type”里填写一个可识别 Type。`);
+  }
+  const effectiveType = resolveTypeConfig(partner.type) ? partner.type : manualType;
+  await emit(options, 'listLookup', 'done', `名单匹配成功：${partner.name}；Type：${effectiveType}`, { partner, effectiveType });
 
   const page = options.page || await connectImpactTab();
   const search = await searchPartnerCard(page, partner, options);
@@ -859,7 +863,7 @@ export async function prepareByName(name, options = {}) {
     matchedName: search.match.name,
     row: partner.row,
     source: partner.source,
-    type: partner.type,
+    type: effectiveType,
     found: true,
     greenCheck: false,
     filled: true,

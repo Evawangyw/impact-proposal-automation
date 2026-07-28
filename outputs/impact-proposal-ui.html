@@ -24,6 +24,20 @@
           <button id="runButton" type="submit">开始排查并填表</button>
         </div>
 
+        <label for="manualType">手动 Type（表格 Type 无法识别时使用）</label>
+        <input id="manualType" name="manualType" autocomplete="off" list="typeOptions" placeholder="例如 Content/Reviews、Technology Solution">
+        <datalist id="typeOptions">
+          <option value="Creators">
+          <option value="Content/Reviews">
+          <option value="Email/Newsletter">
+          <option value="Deal/Coupons">
+          <option value="Loyalty/Rewards">
+          <option value="Search/Comparison">
+          <option value="Network">
+          <option value="Cross Audience Monetization">
+          <option value="Technology Solution">
+        </datalist>
+
         <div class="mode-row" role="group" aria-label="运行模式">
           <label class="toggle">
             <input id="stopBeforeSend" type="checkbox">
@@ -38,7 +52,7 @@
         <h2>批量导入 partner 列表</h2>
         <span id="batchStatus" class="badge muted">等待导入</span>
       </div>
-      <p>粘贴 Impact 导出的 partner 名单，或选择 TXT/CSV 文件。系统会自动匹配表格里还需要邀约的名称。</p>
+      <p>粘贴 Impact 导出的 partner 名单，或选择 TXT/CSV 文件。系统会跳过最后一列为 1 的已招募对象，并匹配表格里还需要邀约的名称。</p>
       <div class="batch-grid">
         <textarea id="partnerListText" placeholder="一行一个名字，或直接粘贴 CSV 内容"></textarea>
         <div class="batch-actions">

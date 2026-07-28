@@ -134,6 +134,7 @@ async function runJob(job) {
     const result = await workflow.prepareByName(job.name, {
       page: automationPage || undefined,
       stopBeforeSendProposalButton: Boolean(job.options.stopBeforeSendProposalButton),
+      manualType: job.options.manualType || '',
       skipWhenGreen: true,
       onStep: (event) => updateJob(job, event),
       requestChoice: (payload) => waitForJobChoice(job, payload),
@@ -230,7 +231,10 @@ function createServer() {
         const body = await readBody(req);
         const name = String(body.name || '').trim();
         if (!name) return json(res, 400, { error: '请输入联盟客名字。' });
-        const job = createJob(name, { stopBeforeSendProposalButton: body.stopBeforeSendProposalButton });
+        const job = createJob(name, {
+          stopBeforeSendProposalButton: body.stopBeforeSendProposalButton,
+          manualType: body.manualType || '',
+        });
         return json(res, 200, publicJob(job));
       }
 
@@ -253,6 +257,7 @@ function createServer() {
             batchId,
             importedName: item.importedName || null,
             stopBeforeSendProposalButton: body.stopBeforeSendProposalButton,
+            manualType: body.manualType || '',
           }));
         return json(res, 200, { batchId, jobs: created.map(publicJob) });
       }

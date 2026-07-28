@@ -1,5 +1,6 @@
 const form = document.querySelector('#runForm');
 const input = document.querySelector('#partnerName');
+const manualType = document.querySelector('#manualType');
 const runButton = document.querySelector('#runButton');
 const stopBeforeSend = document.querySelector('#stopBeforeSend');
 const health = document.querySelector('#health');
@@ -132,7 +133,8 @@ async function checkHealth() {
       setBadge(health, '浏览器未连接', 'failed');
       return data;
     }
-    setBadge(health, data.active ? '有任务运行中' : data.queued ? `已连接 · 队列 ${data.queued}` : '已连接', data.active ? 'running' : 'done');
+    const text = data.active ? '有任务运行中' : data.queued ? `已连接 · 队列 ${data.queued}` : '已连接';
+    setBadge(health, text, data.active ? 'running' : 'done');
     return data;
   } catch {
     setBadge(health, '未连接', 'failed');
@@ -238,9 +240,9 @@ function renderMatch(result) {
   const matched = result.matched || [];
   const unmatched = result.unmatchedNeeded || [];
   const skippedRecruited = result.skippedRecruited || 0;
-  matchSummary.textContent = `????? ${result.importedCount} ????????? ${skippedRecruited} ??????? ${result.neededCount} ????? ${matched.length} ????? ${unmatched.length} ??`;
+  matchSummary.textContent = `导入可邀约 ${result.importedCount} 个名称；已招募跳过 ${skippedRecruited} 个；本地待邀约 ${result.neededCount} 个；匹配到 ${matched.length} 个；未匹配 ${unmatched.length} 个。`;
   queueMatchedButton.disabled = matched.length === 0;
-  setBadge(batchStatus, matched.length ? `?? ${matched.length} ?` : '?????', matched.length ? 'done' : 'failed');
+  setBadge(batchStatus, matched.length ? `匹配 ${matched.length} 个` : '没有匹配项', matched.length ? 'done' : 'failed');
 
   matchResults.innerHTML = '';
   const matchedList = document.createElement('div');
@@ -253,14 +255,14 @@ function renderMatch(result) {
       <span></span>
     `;
     row.querySelector('strong').textContent = item.name;
-    row.querySelector('span').textContent = `????${item.importedName} ? ??? ${Math.round(item.score * 100)}% ? ${item.source || ''} ? ${item.row || ''}`;
+    row.querySelector('span').textContent = `导入名：${item.importedName} · 匹配度 ${Math.round(item.score * 100)}% · ${item.source || ''} 行 ${item.row || ''}`;
     matchedList.appendChild(row);
   });
   matchResults.appendChild(matchedList);
 
   if (matched.length > 80) {
     const more = document.createElement('p');
-    more.textContent = `?? ${matched.length - 80} ?????????????????`;
+    more.textContent = `还有 ${matched.length - 80} 个匹配项未显示，但会一起加入队列。`;
     matchResults.appendChild(more);
   }
 }
@@ -321,6 +323,7 @@ queueMatchedButton.addEventListener('click', async () => {
       body: JSON.stringify({
         names: matched.map((item) => ({ name: item.name, importedName: item.importedName })),
         stopBeforeSendProposalButton: stopBeforeSend.checked,
+        manualType: manualType.value.trim(),
       }),
     });
     const data = await res.json();
@@ -363,6 +366,7 @@ form.addEventListener('submit', async (event) => {
       body: JSON.stringify({
         name,
         stopBeforeSendProposalButton: stopBeforeSend.checked,
+        manualType: manualType.value.trim(),
       }),
     });
     const data = await res.json();
