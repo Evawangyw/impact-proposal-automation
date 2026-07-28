@@ -93,22 +93,77 @@ function findBestPartnerMatch(partners, name, threshold = 0.75) {
   return best;
 }
 
-export function parsePartnerNames(text) {
-  const names = new Set();
-  const raw = String(text || '').replace(/^\uFEFF/, '');
-  for (const line of raw.split(/\r?\n/)) {
-    const cells = line.split(/\t|,/).map((cell) => cell.replace(/^"|"$/g, '').trim()).filter(Boolean);
-    if (cells.length === 0) continue;
-    if (cells.length === 1) {
-      if (!/^(name|partner|partner name|publisher|publisher name)$/i.test(cells[0])) names.add(cells[0]);
+function parseDelimitedLine(line) {
+  const cells = [];
+  let cur = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      cur += '"';
+      index += 1;
       continue;
     }
-    for (const cell of cells) {
-      if (/^(name|partner|partner name|publisher|publisher name)$/i.test(cell)) continue;
-      if (/[a-z0-9]/i.test(cell) && cell.length <= 120) names.add(cell);
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
     }
+    if (!quoted && (char === ',' || char === '\t')) {
+      cells.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += char;
   }
-  return [...names];
+  cells.push(cur.trim());
+  return cells;
+}
+
+function lastNumericCell(cells) {
+  for (let index = cells.length - 1; index >= 0; index -= 1) {
+    const cell = String(cells[index] || '').trim();
+    if (/^-?\d+(?:\.\d+)?$/.test(cell)) return cell;
+  }
+  return '';
+}
+
+function isHeaderCell(value) {
+  return /^(name|partner|partner name|publisher|publisher name)$/i.test(String(value || '').trim());
+}
+
+export function parsePartnerImport(text) {
+  const names = new Set();
+  let skippedRecruited = 0;
+  let skippedEmpty = 0;
+  const raw = String(text || '').replace(/^\uFEFF/, '');
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) {
+      skippedEmpty += 1;
+      continue;
+    }
+    const cells = parseDelimitedLine(line);
+    const meaningful = cells.map((cell) => cell.trim()).filter(Boolean);
+    if (meaningful.length === 0) {
+      skippedEmpty += 1;
+      continue;
+    }
+
+    const name = meaningful[0];
+    if (isHeaderCell(name)) continue;
+
+    if (meaningful.length > 1 && lastNumericCell(cells) === '1') {
+      skippedRecruited += 1;
+      continue;
+    }
+
+    if (/[a-z0-9]/i.test(name) && name.length <= 120) names.add(name);
+  }
+  return { names: [...names], skippedRecruited, skippedEmpty };
+}
+
+export function parsePartnerNames(text) {
+  return parsePartnerImport(text).names;
 }
 
 function normalizeType(value) {
@@ -212,7 +267,10 @@ export async function findPartnerInList(name) {
 }
 
 export async function matchImportedPartnerNames(textOrNames) {
-  const importedNames = Array.isArray(textOrNames) ? textOrNames : parsePartnerNames(textOrNames);
+  const parsed = Array.isArray(textOrNames)
+    ? { names: textOrNames, skippedRecruited: 0, skippedEmpty: 0 }
+    : parsePartnerImport(textOrNames);
+  const importedNames = parsed.names;
   const partners = await loadUnsentPartners();
   const usedImported = new Set();
   const matched = [];
@@ -250,6 +308,8 @@ export async function matchImportedPartnerNames(textOrNames) {
 
   return {
     importedCount: importedNames.length,
+    skippedRecruited: parsed.skippedRecruited,
+    skippedEmpty: parsed.skippedEmpty,
     neededCount: partners.length,
     matched,
     unmatchedNeeded,

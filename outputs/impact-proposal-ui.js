@@ -237,9 +237,10 @@ function renderMatch(result) {
   latestMatch = result;
   const matched = result.matched || [];
   const unmatched = result.unmatchedNeeded || [];
-  matchSummary.textContent = `导入 ${result.importedCount} 个名称；本地待邀约 ${result.neededCount} 个；匹配到 ${matched.length} 个；未匹配 ${unmatched.length} 个。`;
+  const skippedRecruited = result.skippedRecruited || 0;
+  matchSummary.textContent = `????? ${result.importedCount} ????????? ${skippedRecruited} ??????? ${result.neededCount} ????? ${matched.length} ????? ${unmatched.length} ??`;
   queueMatchedButton.disabled = matched.length === 0;
-  setBadge(batchStatus, matched.length ? `匹配 ${matched.length} 个` : '没有匹配项', matched.length ? 'done' : 'failed');
+  setBadge(batchStatus, matched.length ? `?? ${matched.length} ?` : '?????', matched.length ? 'done' : 'failed');
 
   matchResults.innerHTML = '';
   const matchedList = document.createElement('div');
@@ -252,14 +253,14 @@ function renderMatch(result) {
       <span></span>
     `;
     row.querySelector('strong').textContent = item.name;
-    row.querySelector('span').textContent = `导入名：${item.importedName} · 匹配度 ${Math.round(item.score * 100)}% · ${item.source || ''} 行 ${item.row || ''}`;
+    row.querySelector('span').textContent = `????${item.importedName} ? ??? ${Math.round(item.score * 100)}% ? ${item.source || ''} ? ${item.row || ''}`;
     matchedList.appendChild(row);
   });
   matchResults.appendChild(matchedList);
 
   if (matched.length > 80) {
     const more = document.createElement('p');
-    more.textContent = `还有 ${matched.length - 80} 个匹配项未显示，但会一起加入队列。`;
+    more.textContent = `?? ${matched.length - 80} ?????????????????`;
     matchResults.appendChild(more);
   }
 }
