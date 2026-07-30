@@ -129,13 +129,23 @@ function lastNumericCell(cells) {
 }
 
 function isHeaderCell(value) {
-  return /^(name|partner|partner name|publisher|publisher name)$/i.test(String(value || '').trim());
+  return /^(name|partner|partner name|publisher|publisher name|联盟客|类型|已入驻|邀约发送)$/i.test(String(value || '').trim());
+}
+
+function headerIndex(headers, patterns) {
+  return headers.findIndex((header) => patterns.some((pattern) => pattern.test(header)));
+}
+
+function isOne(value) {
+  return String(value || '').trim() === '1';
 }
 
 export function parsePartnerImport(text) {
   const names = new Set();
+  const records = [];
   let skippedRecruited = 0;
   let skippedEmpty = 0;
+  let headers = null;
   const raw = String(text || '').replace(/^\uFEFF/, '');
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) {
@@ -149,17 +159,44 @@ export function parsePartnerImport(text) {
       continue;
     }
 
-    const name = meaningful[0];
-    if (isHeaderCell(name)) continue;
+    if (!headers && meaningful.some(isHeaderCell)) {
+      headers = cells.map((cell) => cell.trim());
+      continue;
+    }
 
-    if (meaningful.length > 1 && lastNumericCell(cells) === '1') {
+    const nameIndex = headers
+      ? headerIndex(headers, [/^联盟客$/, /^partner$/i, /^partner\s*name$/i, /^publisher\s*name$/i, /^name$/i])
+      : 0;
+    const typeIndex = headers
+      ? headerIndex(headers, [/^类型$/, /^type$/i, /^category$/i])
+      : -1;
+    const joinedIndex = headers
+      ? headerIndex(headers, [/^已入驻$/, /^joined$/i, /^active$/i])
+      : -1;
+    const inviteSentIndex = headers
+      ? headerIndex(headers, [/^邀约发送$/, /^invitation\s*sent$/i, /^proposal\s*sent$/i])
+      : -1;
+
+    const name = String(cells[nameIndex >= 0 ? nameIndex : 0] || '').trim();
+    if (!name || isHeaderCell(name)) continue;
+
+    const secondCellType = resolveTypeConfig(cells[1]) ? String(cells[1] || '').trim() : '';
+    const rowType = typeIndex >= 0 ? String(cells[typeIndex] || '').trim() : secondCellType;
+    const isRecruited = joinedIndex >= 0 || inviteSentIndex >= 0
+      ? isOne(cells[joinedIndex]) || isOne(cells[inviteSentIndex])
+      : meaningful.length > 1 && lastNumericCell(cells) === '1';
+
+    if (isRecruited) {
       skippedRecruited += 1;
       continue;
     }
 
-    if (/[a-z0-9]/i.test(name) && name.length <= 120) names.add(name);
+    if (/[a-z0-9]/i.test(name) && name.length <= 120 && !names.has(name)) {
+      names.add(name);
+      records.push({ name, type: rowType });
+    }
   }
-  return { names: [...names], skippedRecruited, skippedEmpty };
+  return { names: [...names], records, skippedRecruited, skippedEmpty };
 }
 
 export function parsePartnerNames(text) {
@@ -268,9 +305,9 @@ export async function findPartnerInList(name) {
 
 export async function matchImportedPartnerNames(textOrNames) {
   const parsed = Array.isArray(textOrNames)
-    ? { names: textOrNames, skippedRecruited: 0, skippedEmpty: 0 }
+    ? { names: textOrNames, records: textOrNames.map((name) => ({ name, type: '' })), skippedRecruited: 0, skippedEmpty: 0 }
     : parsePartnerImport(textOrNames);
-  const importedNames = parsed.names;
+  const importedRecords = parsed.records || parsed.names.map((name) => ({ name, type: '' }));
   const partners = await loadUnsentPartners();
   const usedImported = new Set();
   const matched = [];
@@ -278,12 +315,12 @@ export async function matchImportedPartnerNames(textOrNames) {
 
   for (const partner of partners) {
     let best = null;
-    for (let index = 0; index < importedNames.length; index += 1) {
+    for (let index = 0; index < importedRecords.length; index += 1) {
       if (usedImported.has(index)) continue;
-      const importedName = importedNames[index];
+      const importedName = importedRecords[index].name;
       const score = nameMatchScore(partner.name, importedName);
       if (score >= 0.75 && (!best || score > best.score)) {
-        best = { index, importedName, score };
+        best = { index, importedName, importedType: importedRecords[index].type || '', score };
       }
     }
     if (best) {
@@ -291,6 +328,7 @@ export async function matchImportedPartnerNames(textOrNames) {
       matched.push({
         name: partner.name,
         importedName: best.importedName,
+        importedType: best.importedType,
         score: Number(best.score.toFixed(3)),
         row: partner.row,
         source: partner.source,
@@ -307,7 +345,7 @@ export async function matchImportedPartnerNames(textOrNames) {
   }
 
   return {
-    importedCount: importedNames.length,
+    importedCount: importedRecords.length,
     skippedRecruited: parsed.skippedRecruited,
     skippedEmpty: parsed.skippedEmpty,
     neededCount: partners.length,

@@ -257,7 +257,7 @@ function createServer() {
             batchId,
             importedName: item.importedName || null,
             stopBeforeSendProposalButton: body.stopBeforeSendProposalButton,
-            manualType: body.manualType || '',
+            manualType: item.manualType || item.importedType || body.manualType || '',
           }));
         return json(res, 200, { batchId, jobs: created.map(publicJob) });
       }

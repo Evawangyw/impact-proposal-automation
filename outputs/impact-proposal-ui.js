@@ -255,7 +255,7 @@ function renderMatch(result) {
       <span></span>
     `;
     row.querySelector('strong').textContent = item.name;
-    row.querySelector('span').textContent = `导入名：${item.importedName} · 匹配度 ${Math.round(item.score * 100)}% · ${item.source || ''} 行 ${item.row || ''}`;
+    row.querySelector('span').textContent = `导入名：${item.importedName} · 类型：${item.importedType || item.type || '未提供'} · 匹配度 ${Math.round(item.score * 100)}% · ${item.source || ''} 行 ${item.row || ''}`;
     matchedList.appendChild(row);
   });
   matchResults.appendChild(matchedList);
@@ -321,7 +321,12 @@ queueMatchedButton.addEventListener('click', async () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        names: matched.map((item) => ({ name: item.name, importedName: item.importedName })),
+        names: matched.map((item) => ({
+          name: item.name,
+          importedName: item.importedName,
+          importedType: item.importedType || '',
+          manualType: item.importedType || manualType.value.trim(),
+        })),
         stopBeforeSendProposalButton: stopBeforeSend.checked,
         manualType: manualType.value.trim(),
       }),
