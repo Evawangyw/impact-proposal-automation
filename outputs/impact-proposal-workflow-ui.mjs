@@ -252,6 +252,18 @@ async function emit(options, key, state, message, extra = {}) {
   }
 }
 
+async function checkpoint(options) {
+  if (typeof options.shouldStop === 'function' && await options.shouldStop()) {
+    throw new Error('Task stopped by user.');
+  }
+  while (typeof options.shouldPause === 'function' && await options.shouldPause()) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (typeof options.shouldStop === 'function' && await options.shouldStop()) {
+      throw new Error('Task stopped by user.');
+    }
+  }
+}
+
 async function wait(page, ms) {
   await page.playwright.waitForTimeout(ms);
 }
@@ -346,13 +358,15 @@ async function clearMarketplaceFilters(page) {
 }
 
 async function searchPartnerCard(page, partner, options = {}) {
+  await checkpoint(options);
   const searchName = impactSearchName(partner.name) || partner.name;
   await emit(options, 'impactSearch', 'running', 'Searching Impact for ' + searchName);
   await page.goto(marketplaceUrl(searchName), { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(async (error) => {
     await emit(options, 'impactSearch', 'running', 'Impact is loading slowly; continuing to inspect results: ' + (error?.message || error));
   });
   await page.playwright.waitForLoadState({ state: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await wait(page, 6500);
+  await wait(page, 10000);
+  await checkpoint(options);
 
   const input = page.playwright.locator('input[placeholder="Search"]').first();
   await input.click({ timeout: 30000 });
@@ -362,8 +376,9 @@ async function searchPartnerCard(page, partner, options = {}) {
     const text = document.body?.innerText || '';
     return document.querySelectorAll('.iui-card').length > 0
       || /\b0 items\b|\b1 item\b|\d+\s+items|Sorry! There's no data to show/i.test(text);
-  }, { timeout: 60000 }).catch(() => {});
-  await wait(page, 2500);
+  }, { timeout: 90000 }).catch(() => {});
+  await wait(page, 5000);
+  await checkpoint(options);
 
   const targetName = normalizeName(partner.name);
   const targetCompact = compactName(partner.name);
@@ -468,6 +483,7 @@ async function searchPartnerCard(page, partner, options = {}) {
   return { found: true, match, cards: searchResult.cards };
 }
 async function openProposalForm(page, cardIndex, options = {}) {
+  await checkpoint(options);
   await emit(options, 'proposalForm', 'running', 'Opening proposal form');
   const card = page.playwright.locator('.iui-card').nth(cardIndex);
   if (typeof card.scrollIntoViewIfNeeded === 'function') {
@@ -521,8 +537,9 @@ async function openProposalForm(page, cardIndex, options = {}) {
   }
 
   let formSrc = '';
-  for (let attempt = 0; attempt < 150; attempt += 1) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     await wait(page, 1000);
+    if (attempt % 5 === 0) await checkpoint(options);
     formSrc = await page.playwright.evaluate(() => (
       Array.from(document.querySelectorAll('iframe'))
         .map((frame) => frame.src)
@@ -538,11 +555,13 @@ async function openProposalForm(page, cardIndex, options = {}) {
     await emit(options, 'proposalForm', 'running', `琛ㄥ崟鍔犺浇杈冩參锛岀户缁鏌ヨ〃鍗曞唴瀹癸細${error?.message || error}`);
   });
   await page.playwright.waitForLoadState({ state: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await wait(page, 4500);
+  await wait(page, 8000);
+  await checkpoint(options);
   await emit(options, 'proposalForm', 'done', '閭€绾﹁〃鍗曞凡鎵撳紑');
 }
 
 async function chooseTemplateTerm(page, term, options = {}) {
+  await checkpoint(options);
   await emit(options, 'templateTerm', 'running', `Selecting ${term}`);
   const selected = await page.playwright.evaluate(async (term) => {
     const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -802,6 +821,7 @@ async function chooseTemplateTerm(page, term, options = {}) {
   await emit(options, 'templateTerm', 'done', `Selected ${term}`);
 }
 async function chooseStartDate(page, date, options = {}) {
+  await checkpoint(options);
   await emit(options, 'startDate', 'running', '姝ｅ湪閫夋嫨浠婂ぉ浣滀负 Start Date');
   await page.playwright.locator('button[data-testid="uicl-date-input"]').first().click({ timeout: 30000 });
   await wait(page, 1000);
@@ -811,6 +831,7 @@ async function chooseStartDate(page, date, options = {}) {
 }
 
 async function choosePartnerGroup(page, groupQuery, options = {}) {
+  await checkpoint(options);
   await emit(options, 'partnerGroup', 'running', `姝ｅ湪閫夋嫨 ${groupQuery}`);
   const input = page.playwright.locator('input[data-testid="uicl-tag-input-text-input"]').first();
   await input.click({ timeout: 30000 });
@@ -826,6 +847,7 @@ async function choosePartnerGroup(page, groupQuery, options = {}) {
 }
 
 async function fillMessage(page, message, options = {}) {
+  await checkpoint(options);
   await emit(options, 'message', 'running', 'Filling proposal message');
   await page.playwright.locator('textarea[name="comment"], textarea').first().fill(message);
   await wait(page, 700);
@@ -833,6 +855,7 @@ async function fillMessage(page, message, options = {}) {
 }
 
 async function clickToLegalConfirm(page, options = {}) {
+  await checkpoint(options);
   await emit(options, 'sendProposal', 'running', '姝ｅ湪鐐瑰嚮 Send Proposal');
   await page.playwright.getByText('Send Proposal').click({ timeout: 30000 });
   await wait(page, 5000);
@@ -844,6 +867,7 @@ async function clickToLegalConfirm(page, options = {}) {
 }
 
 export async function prepareByName(name, options = {}) {
+  await checkpoint(options);
   await emit(options, 'listLookup', 'running', options.partnerOverride ? '正在使用导入表里的联盟客信息' : '正在匹配本地名单');
   const partner = options.partnerOverride || await findPartnerInList(name);
   if (!partner) {

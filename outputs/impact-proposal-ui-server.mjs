@@ -16,6 +16,8 @@ let activeJobId = null;
 let currentUiUrl = 'http://127.0.0.1:8787/';
 let automationPage = null;
 let workerTimer = null;
+let queuePaused = false;
+let stopRequested = false;
 
 function json(res, status, data) {
   res.writeHead(status, {
@@ -65,6 +67,7 @@ function createJob(name, options = {}) {
     error: null,
     choiceRequest: null,
     choiceResolver: null,
+    cancelled: false,
   };
   jobs.set(id, job);
   return job;
@@ -84,6 +87,7 @@ function publicJob(job) {
     result: job.result,
     error: job.error,
     choiceRequest: job.choiceRequest || null,
+    cancelled: Boolean(job.cancelled),
   };
 }
 
@@ -136,6 +140,8 @@ async function runJob(job) {
       stopBeforeSendProposalButton: Boolean(job.options.stopBeforeSendProposalButton),
       manualType: job.options.manualType || '',
       partnerOverride: job.options.partnerOverride || null,
+      shouldStop: () => stopRequested || job.cancelled,
+      shouldPause: () => queuePaused && !stopRequested && !job.cancelled,
       skipWhenGreen: true,
       onStep: (event) => updateJob(job, event),
       requestChoice: (payload) => waitForJobChoice(job, payload),
@@ -145,10 +151,12 @@ async function runJob(job) {
     job.choiceResolver = null;
     job.result = result;
   } catch (error) {
-    job.status = 'failed';
+    const stopped = /stopped by user/i.test(error?.message || '');
+    job.status = stopped ? 'cancelled' : 'failed';
     job.choiceRequest = null;
     job.choiceResolver = null;
-    job.error = error?.message || String(error);
+    job.cancelled = stopped;
+    job.error = stopped ? '已停止' : error?.message || String(error);
   } finally {
     job.updatedAt = new Date().toISOString();
     if (activeJobId === job.id) activeJobId = null;
@@ -158,6 +166,7 @@ async function runJob(job) {
 
 export async function processQueuedJobs() {
   if (activeJobId) return { processed: false, activeJobId };
+  if (queuePaused) return { processed: false, paused: true };
   const job = [...jobs.values()].find((item) => item.status === 'queued');
   if (!job) return { processed: false };
   await runJob(job);
@@ -218,6 +227,8 @@ function createServer() {
           ok: true,
           active: activeJobId,
           queued,
+          paused: queuePaused,
+          stopRequested,
           automationConnected: Boolean(automationPage),
           mappings: workflow.mappings(),
         });
@@ -239,6 +250,34 @@ function createServer() {
         return json(res, 200, publicJob(job));
       }
 
+      if (req.method === 'POST' && url.pathname === '/api/control') {
+        const body = await readBody(req);
+        const action = String(body.action || '').trim();
+        if (action === 'pause') {
+          queuePaused = true;
+          return json(res, 200, { ok: true, paused: queuePaused, stopRequested });
+        }
+        if (action === 'resume') {
+          queuePaused = false;
+          stopRequested = false;
+          return json(res, 200, { ok: true, paused: queuePaused, stopRequested });
+        }
+        if (action === 'stop') {
+          stopRequested = true;
+          queuePaused = false;
+          for (const job of jobs.values()) {
+            if (job.status === 'queued') {
+              job.status = 'cancelled';
+              job.cancelled = true;
+              job.error = '已停止';
+              job.updatedAt = new Date().toISOString();
+            }
+          }
+          return json(res, 200, { ok: true, paused: queuePaused, stopRequested });
+        }
+        return json(res, 400, { error: 'Unknown control action.' });
+      }
+
       if (req.method === 'POST' && url.pathname === '/api/match-partners') {
         const body = await readBody(req);
         const result = await workflow.matchImportedPartnerNames(body.text || body.names || '');
@@ -248,6 +287,8 @@ function createServer() {
       if (req.method === 'POST' && url.pathname === '/api/run-batch') {
         if (activeJobId) return json(res, 409, { error: '当前已有任务在运行，请等它结束后再导入批量任务。', activeJobId });
         const body = await readBody(req);
+        stopRequested = false;
+        queuePaused = false;
         const names = Array.isArray(body.names) ? body.names : [];
         if (!names.length) return json(res, 400, { error: '没有可加入队列的匹配对象。' });
         const batchId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);

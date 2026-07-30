@@ -14,6 +14,9 @@ const partnerListText = document.querySelector('#partnerListText');
 const partnerListFile = document.querySelector('#partnerListFile');
 const matchButton = document.querySelector('#matchButton');
 const queueMatchedButton = document.querySelector('#queueMatchedButton');
+const pauseQueueButton = document.querySelector('#pauseQueueButton');
+const resumeQueueButton = document.querySelector('#resumeQueueButton');
+const stopQueueButton = document.querySelector('#stopQueueButton');
 const batchStatus = document.querySelector('#batchStatus');
 const matchSummary = document.querySelector('#matchSummary');
 const matchResults = document.querySelector('#matchResults');
@@ -29,6 +32,7 @@ let pollTimer = null;
 let activeJobId = null;
 let batchJobIds = [];
 let latestMatch = null;
+let queuePaused = false;
 
 const defaultSteps = [
   { key: 'listLookup', label: '名单匹配', state: 'waiting', message: '等待开始' },
@@ -45,6 +49,13 @@ const defaultSteps = [
 function setBadge(el, text, cls) {
   el.className = `badge ${cls || 'muted'}`;
   el.textContent = text;
+}
+
+function setControlButtons({ active = false, paused = queuePaused } = {}) {
+  if (!pauseQueueButton || !resumeQueueButton || !stopQueueButton) return;
+  pauseQueueButton.disabled = !active || paused;
+  resumeQueueButton.disabled = !active || !paused;
+  stopQueueButton.disabled = !active;
 }
 
 function renderSteps(steps = defaultSteps) {
@@ -129,8 +140,16 @@ async function checkHealth() {
   try {
     const res = await fetch('/api/health');
     const data = await res.json();
+    queuePaused = Boolean(data.paused);
+    const queueActive = batchJobIds.length > 0;
+    setControlButtons({ active: queueActive, paused: queuePaused });
+
     if (!data.automationConnected) {
       setBadge(health, '浏览器未连接', 'failed');
+      return data;
+    }
+    if (data.paused) {
+      setBadge(health, `已暂停 · 队列 ${data.queued || 0}`, 'running');
       return data;
     }
     const text = data.active ? '有任务运行中' : data.queued ? `已连接 · 队列 ${data.queued}` : '已连接';
@@ -138,11 +157,13 @@ async function checkHealth() {
     return data;
   } catch {
     setBadge(health, '未连接', 'failed');
+    setControlButtons({ active: false });
     return null;
   }
 }
 
 function finalText(job) {
+  if (job.status === 'cancelled') return '任务已停止。';
   if (job.status === 'failed') return `任务失败：${job.error}`;
   if (job.status === 'waiting_choice') return '任务已暂停，请在上方选择正确的搜索结果。';
   if (job.status !== 'done') return '任务运行中，请看上面的步骤状态。';
@@ -181,6 +202,9 @@ async function pollJob(id) {
   if (job.status === 'done') {
     setBadge(jobStatus, '已完成，可输入下一个', 'done');
     returnToNameInput(true);
+  } else if (job.status === 'cancelled') {
+    setBadge(jobStatus, '已停止', 'failed');
+    returnToNameInput(false);
   } else {
     setBadge(jobStatus, '失败', 'failed');
     returnToNameInput(false);
@@ -191,23 +215,34 @@ function renderBatchJobs(jobs) {
   const total = jobs.length;
   const done = jobs.filter((job) => job.status === 'done').length;
   const failed = jobs.filter((job) => job.status === 'failed').length;
+  const cancelled = jobs.filter((job) => job.status === 'cancelled').length;
   const queued = jobs.filter((job) => job.status === 'queued').length;
+  const completed = done + failed + cancelled;
   const active = jobs.find((job) => job.status === 'waiting_choice')
     || jobs.find((job) => job.status === 'running')
     || jobs.find((job) => job.status === 'queued')
     || jobs[jobs.length - 1];
 
-  setBadge(batchStatus, `队列 ${done + failed}/${total}`, failed ? 'failed' : total === done ? 'done' : 'running');
-  setBadge(jobStatus, active?.status === 'waiting_choice' ? '等待你选择结果' : total === done + failed ? '批量完成' : `批量运行中 · 待处理 ${queued}`, total === done + failed ? 'done' : 'running');
+  const badgeClass = failed || cancelled ? 'failed' : total === done ? 'done' : 'running';
+  setBadge(batchStatus, `队列 ${completed}/${total}`, badgeClass);
+  const headline = active?.status === 'waiting_choice'
+    ? '等待你选择结果'
+    : queuePaused
+      ? `批量已暂停 · 待处理 ${queued}`
+      : total === completed
+        ? '批量完成'
+        : `批量运行中 · 待处理 ${queued}`;
+  setBadge(jobStatus, headline, total === completed ? (failed || cancelled ? 'failed' : 'done') : 'running');
   renderSteps(active?.steps || defaultSteps);
   renderChoice(active);
 
   const lines = jobs.map((job, index) => {
     const status = job.status === 'done' ? '完成'
       : job.status === 'failed' ? `失败：${job.error || ''}`
-        : job.status === 'running' ? '运行中'
-          : job.status === 'waiting_choice' ? '等待选择'
-            : '排队中';
+        : job.status === 'cancelled' ? '已停止'
+          : job.status === 'running' ? '运行中'
+            : job.status === 'waiting_choice' ? '等待选择'
+              : '排队中';
     return `${index + 1}. ${job.name} - ${status}`;
   });
   resultText.textContent = lines.join('\n');
@@ -218,8 +253,8 @@ async function pollBatch() {
   const res = await fetch(`/api/jobs?ids=${encodeURIComponent(batchJobIds.join(','))}`);
   const data = await res.json();
   const jobs = data.jobs || [];
-  renderBatchJobs(jobs);
   await checkHealth();
+  renderBatchJobs(jobs);
 
   const stillRunning = jobs.some((job) => ['queued', 'running', 'waiting_choice'].includes(job.status));
   if (stillRunning) {
@@ -229,9 +264,10 @@ async function pollBatch() {
 
   activeJobId = null;
   batchJobIds = [];
+  setControlButtons({ active: false });
   runButton.disabled = false;
   queueMatchedButton.disabled = !latestMatch?.matched?.length;
-  setBadge(jobStatus, '批量完成', 'done');
+  setBadge(jobStatus, '批量完成', jobs.some((job) => job.status === 'failed' || job.status === 'cancelled') ? 'failed' : 'done');
   returnToNameInput(false);
 }
 
@@ -266,9 +302,23 @@ function renderMatch(result) {
   }
 }
 
+async function sendControl(action) {
+  const res = await fetch('/api/control', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '控制失败');
+  await checkHealth();
+  if (batchJobIds.length) await pollBatch();
+  return data;
+}
+
 partnerListFile.addEventListener('change', async () => {
   const file = partnerListFile.files?.[0];
   if (!file) return;
+  setBadge(batchStatus, '正在读取文件', 'running');
   partnerListText.value = await file.text();
   setBadge(batchStatus, '文件已读取', 'done');
 });
@@ -282,8 +332,9 @@ matchButton.addEventListener('click', async () => {
 
   matchButton.disabled = true;
   queueMatchedButton.disabled = true;
+  setControlButtons({ active: false });
   setBadge(batchStatus, '匹配中', 'running');
-  matchSummary.textContent = '正在和本地待邀约名单匹配。';
+  matchSummary.textContent = '正在按导入名单本身判断待邀约对象。';
   matchResults.innerHTML = '';
   try {
     const res = await fetch('/api/match-partners', {
@@ -308,6 +359,7 @@ queueMatchedButton.addEventListener('click', async () => {
   window.clearTimeout(pollTimer);
   queueMatchedButton.disabled = true;
   runButton.disabled = true;
+  setControlButtons({ active: true, paused: false });
   setBadge(batchStatus, '加入队列中', 'running');
   resultText.textContent = '正在创建批量任务。';
 
@@ -335,12 +387,46 @@ queueMatchedButton.addEventListener('click', async () => {
     if (!res.ok) throw new Error(data.error || '批量任务启动失败');
     batchJobIds = (data.jobs || []).map((job) => job.id);
     activeJobId = batchJobIds[0] || null;
+    setControlButtons({ active: true, paused: false });
     await pollBatch();
   } catch (error) {
     setBadge(batchStatus, '启动失败', 'failed');
     resultText.textContent = error.message || String(error);
     runButton.disabled = false;
     queueMatchedButton.disabled = !latestMatch?.matched?.length;
+    setControlButtons({ active: false });
+  }
+});
+
+pauseQueueButton?.addEventListener('click', async () => {
+  setControlButtons({ active: true, paused: true });
+  setBadge(batchStatus, '暂停中', 'running');
+  try {
+    await sendControl('pause');
+    resultText.textContent = `${resultText.textContent}\n\n已暂停：当前正在跑的这个会先停在下一个检查点，后面的队列暂不继续。`;
+  } catch (error) {
+    resultText.textContent = error.message || String(error);
+  }
+});
+
+resumeQueueButton?.addEventListener('click', async () => {
+  setControlButtons({ active: true, paused: false });
+  setBadge(batchStatus, '继续中', 'running');
+  try {
+    await sendControl('resume');
+  } catch (error) {
+    resultText.textContent = error.message || String(error);
+  }
+});
+
+stopQueueButton?.addEventListener('click', async () => {
+  setControlButtons({ active: true, paused: false });
+  setBadge(batchStatus, '停止中', 'running');
+  try {
+    await sendControl('stop');
+    resultText.textContent = `${resultText.textContent}\n\n已发送停止：排队中的任务会立即取消，正在跑的任务会在下一个检查点停下。`;
+  } catch (error) {
+    resultText.textContent = error.message || String(error);
   }
 });
 
@@ -354,6 +440,7 @@ form.addEventListener('submit', async (event) => {
 
   window.clearTimeout(pollTimer);
   batchJobIds = [];
+  setControlButtons({ active: false });
   choicePanel.hidden = true;
   runButton.disabled = true;
   setBadge(jobStatus, '启动中', 'running');
@@ -394,5 +481,6 @@ window.addEventListener('focus', () => {
 });
 
 renderSteps();
+setControlButtons({ active: false });
 checkHealth();
 returnToNameInput(false);
