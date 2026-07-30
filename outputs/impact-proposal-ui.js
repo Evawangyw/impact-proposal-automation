@@ -277,7 +277,11 @@ function renderMatch(result) {
   latestMatch = result;
   const matched = result.matched || [];
   const skippedRecruited = result.skippedRecruited || 0;
-  matchSummary.textContent = `导入后可邀约 ${result.importedCount} 个；已入驻/已发送跳过 ${skippedRecruited} 个；将加入队列 ${matched.length} 个。`;
+  const skippedPreview = (result.skippedRecruitedRows || [])
+    .slice(0, 5)
+    .map((item) => `${item.name} (行 ${item.row})`)
+    .join('、');
+  matchSummary.textContent = `导入后可邀约 ${result.importedCount} 个；已入驻/已发送跳过 ${skippedRecruited} 个；将加入队列 ${matched.length} 个。${skippedPreview ? ` 已跳过：${skippedPreview}${skippedRecruited > 5 ? ' 等' : ''}` : ''}`;
   queueMatchedButton.disabled = matched.length === 0;
   setBadge(batchStatus, matched.length ? `匹配 ${matched.length} 个` : '没有匹配项', matched.length ? 'done' : 'failed');
 

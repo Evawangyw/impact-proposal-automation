@@ -128,6 +128,14 @@ function lastNumericCell(cells) {
   return '';
 }
 
+function lastMeaningfulCell(cells) {
+  for (let index = cells.length - 1; index >= 0; index -= 1) {
+    const cell = String(cells[index] || '').trim();
+    if (cell) return cell;
+  }
+  return '';
+}
+
 function zh(codePoints) {
   return String.fromCodePoint(...codePoints);
 }
@@ -143,13 +151,34 @@ function isHeaderCell(value) {
     || [HEADER_NAME_ZH, HEADER_TYPE_ZH, HEADER_JOINED_ZH, HEADER_INVITE_SENT_ZH].includes(text);
 }
 
+function normalizeHeader(value) {
+  return String(value || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/\s+/g, '')
+    .replace(/[()（）\-_./]/g, '')
+    .toLowerCase();
+}
+
 function headerIndex(headers, patterns) {
-  return headers.findIndex((header) => patterns.some((pattern) => (
-    typeof pattern === 'string' ? header === pattern : pattern.test(header)
-  )));
+  return headers.findIndex((header) => {
+    const raw = String(header || '').trim();
+    const normalized = normalizeHeader(raw);
+    return patterns.some((pattern) => {
+      if (typeof pattern === 'string') {
+        return raw === pattern || normalized === normalizeHeader(pattern);
+      }
+      return pattern.test(raw) || pattern.test(normalized);
+    });
+  });
 }
 function isOne(value) {
-  return String(value || '').trim() === '1';
+  const text = String(value || '').trim().toLowerCase();
+  return text === '1' || text === '1.0' || text === 'true' || text === 'yes' || text === 'y' || text === '是';
+}
+
+function isFilledStatus(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return Boolean(text) && text !== '0' && text !== '0.0' && text !== 'false' && text !== 'no' && text !== 'n';
 }
 
 export function parsePartnerImport(text) {
@@ -157,9 +186,14 @@ export function parsePartnerImport(text) {
   const records = [];
   let skippedRecruited = 0;
   let skippedEmpty = 0;
+  let totalRows = 0;
+  const skippedRecruitedRows = [];
   let headers = null;
+  const joinedHeaders = [HEADER_JOINED_ZH, '入驻', '已招募', '已加入', /^joined$/i, /^recruited$/i, /^active$/i];
+  const inviteSentHeaders = [HEADER_INVITE_SENT_ZH, '已邀约', '邀约', '已发送', /^invitation\s*sent$/i, /^proposal\s*sent$/i, /^sent$/i];
   const raw = String(text || '').replace(/^\uFEFF/, '');
   for (const line of raw.split(/\r?\n/)) {
+    totalRows += 1;
     if (!line.trim()) {
       skippedEmpty += 1;
       continue;
@@ -183,10 +217,10 @@ export function parsePartnerImport(text) {
       ? headerIndex(headers, [HEADER_TYPE_ZH, /^type$/i, /^category$/i])
       : -1;
     const joinedIndex = headers
-      ? headerIndex(headers, [HEADER_JOINED_ZH, /^joined$/i, /^active$/i])
+      ? headerIndex(headers, joinedHeaders)
       : -1;
     const inviteSentIndex = headers
-      ? headerIndex(headers, [HEADER_INVITE_SENT_ZH, /^invitation\s*sent$/i, /^proposal\s*sent$/i])
+      ? headerIndex(headers, inviteSentHeaders)
       : -1;
 
     const name = String(cells[nameIndex >= 0 ? nameIndex : 0] || '').trim();
@@ -194,21 +228,31 @@ export function parsePartnerImport(text) {
 
     const secondCellType = resolveTypeConfig(cells[1]) ? String(cells[1] || '').trim() : '';
     const rowType = typeIndex >= 0 ? String(cells[typeIndex] || '').trim() : secondCellType;
-    const isRecruited = joinedIndex >= 0 || inviteSentIndex >= 0
-      ? isOne(cells[joinedIndex]) || isOne(cells[inviteSentIndex])
-      : meaningful.length > 1 && lastNumericCell(cells) === '1';
+    const statusValues = [];
+    if (joinedIndex >= 0) statusValues.push(cells[joinedIndex]);
+    if (inviteSentIndex >= 0) statusValues.push(cells[inviteSentIndex]);
+    const isRecruited = statusValues.length
+      ? statusValues.some((value) => isOne(value) || isFilledStatus(value))
+      : meaningful.length > 1 && (isOne(lastMeaningfulCell(cells)) || isOne(lastNumericCell(cells)));
 
     if (isRecruited) {
       skippedRecruited += 1;
+      skippedRecruitedRows.push({
+        name,
+        row: totalRows,
+        joined: joinedIndex >= 0 ? String(cells[joinedIndex] || '').trim() : '',
+        inviteSent: inviteSentIndex >= 0 ? String(cells[inviteSentIndex] || '').trim() : '',
+        lastValue: lastMeaningfulCell(cells),
+      });
       continue;
     }
 
     if (/[a-z0-9]/i.test(name) && name.length <= 120 && !names.has(name)) {
       names.add(name);
-      records.push({ name, type: rowType });
+      records.push({ name, type: rowType, row: totalRows });
     }
   }
-  return { names: [...names], records, skippedRecruited, skippedEmpty };
+  return { names: [...names], records, skippedRecruited, skippedEmpty, skippedRecruitedRows };
 }
 
 export function parsePartnerNames(text) {
@@ -345,6 +389,7 @@ export async function matchImportedPartnerNames(textOrNames) {
   return {
     importedCount: importedRecords.length,
     skippedRecruited: parsed.skippedRecruited,
+    skippedRecruitedRows: parsed.skippedRecruitedRows || [],
     skippedEmpty: parsed.skippedEmpty,
     neededCount: importedRecords.length,
     matched,
