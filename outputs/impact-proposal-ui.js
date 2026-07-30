@@ -238,9 +238,8 @@ async function pollBatch() {
 function renderMatch(result) {
   latestMatch = result;
   const matched = result.matched || [];
-  const unmatched = result.unmatchedNeeded || [];
   const skippedRecruited = result.skippedRecruited || 0;
-  matchSummary.textContent = `导入可邀约 ${result.importedCount} 个名称；已招募跳过 ${skippedRecruited} 个；本地待邀约 ${result.neededCount} 个；匹配到 ${matched.length} 个；未匹配 ${unmatched.length} 个。`;
+  matchSummary.textContent = `导入后可邀约 ${result.importedCount} 个；已入驻/已发送跳过 ${skippedRecruited} 个；将加入队列 ${matched.length} 个。`;
   queueMatchedButton.disabled = matched.length === 0;
   setBadge(batchStatus, matched.length ? `匹配 ${matched.length} 个` : '没有匹配项', matched.length ? 'done' : 'failed');
 
@@ -325,6 +324,7 @@ queueMatchedButton.addEventListener('click', async () => {
           name: item.name,
           importedName: item.importedName,
           importedType: item.importedType || '',
+          row: item.row || null,
           manualType: item.importedType || manualType.value.trim(),
         })),
         stopBeforeSendProposalButton: stopBeforeSend.checked,

@@ -135,6 +135,7 @@ async function runJob(job) {
       page: automationPage || undefined,
       stopBeforeSendProposalButton: Boolean(job.options.stopBeforeSendProposalButton),
       manualType: job.options.manualType || '',
+      partnerOverride: job.options.partnerOverride || null,
       skipWhenGreen: true,
       onStep: (event) => updateJob(job, event),
       requestChoice: (payload) => waitForJobChoice(job, payload),
@@ -258,6 +259,12 @@ function createServer() {
             importedName: item.importedName || null,
             stopBeforeSendProposalButton: body.stopBeforeSendProposalButton,
             manualType: item.manualType || item.importedType || body.manualType || '',
+            partnerOverride: {
+              name: String(item.name).trim(),
+              type: item.importedType || item.manualType || body.manualType || '',
+              source: 'import',
+              row: item.row || null,
+            },
           }));
         return json(res, 200, { batchId, jobs: created.map(publicJob) });
       }

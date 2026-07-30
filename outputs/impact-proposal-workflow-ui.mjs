@@ -1,17 +1,16 @@
-import { dirname, resolve } from 'node:path';
+﻿import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..').replace(/\\/g, '/');
 
 export const JMGO_MESSAGE = `Join the JMGO Affiliate Program | No.1 Home Laser projector
 Hi Partner,
-We’re pleased to invite you to join the JMGO Affiliate Program on Impact.
+We鈥檙e pleased to invite you to join the JMGO Affiliate Program on Impact.
 JMGO is a smart projector brand focused on redefining home entertainment through premium projection technology, portable viewing experiences, and immersive big-screen scenarios. 
-Over the past fifteen years, JMGO has refined a full stack of home-entertainment technology ：the MALC™ triple-color laser engine, the  Dual Dynamic Iris system, and an AI-powered gimbal. Backed by 500+ patents, we've stayed devoted to a single pursuit: making true cinema effortless and accurate in every home.
+Over the past fifteen years, JMGO has refined a full stack of home-entertainment technology 锛歵he MALC鈩?triple-color laser engine, the  Dual Dynamic Iris system, and an AI-powered gimbal. Backed by 500+ patents, we've stayed devoted to a single pursuit: making true cinema effortless and accurate in every home.
 
 
-Why join the JMGO Affiliate Program? ✨
-- Competitive commission: up to 10% 
+Why join the JMGO Affiliate Program? 鉁?- Competitive commission: up to 10% 
 - High-value conversions: average order value is around $1,200, giving partners stronger revenue potential per sale 
 - Proven performance: $0.85 EPC and 2.06% conversion rate
 - Strong promotional potential: product launches, seasonal campaigns, major shopping events, and limited-time offers 
@@ -19,9 +18,8 @@ Why join the JMGO Affiliate Program? ✨
 - Partner support: product information, creatives, deal details, campaign updates, and promotional materials
 
 
-👉 Apply here：
-https://global.jmgo.com/pages/affiliate-program
-We’d be happy to share more details and support your upcoming placements once you join.
+馃憠 Apply here锛?https://global.jmgo.com/pages/affiliate-program
+We鈥檇 be happy to share more details and support your upcoming placements once you join.
 
 Best regards,
 JMGO Affiliate Team`;
@@ -128,14 +126,26 @@ function lastNumericCell(cells) {
   return '';
 }
 
+function zh(codePoints) {
+  return String.fromCodePoint(...codePoints);
+}
+
+const HEADER_NAME_ZH = zh([0x8054, 0x76df, 0x5ba2]);
+const HEADER_TYPE_ZH = zh([0x7c7b, 0x578b]);
+const HEADER_JOINED_ZH = zh([0x5df2, 0x5165, 0x9a7b]);
+const HEADER_INVITE_SENT_ZH = zh([0x9080, 0x7ea6, 0x53d1, 0x9001]);
+
 function isHeaderCell(value) {
-  return /^(name|partner|partner name|publisher|publisher name|联盟客|类型|已入驻|邀约发送)$/i.test(String(value || '').trim());
+  const text = String(value || '').trim();
+  return /^(name|partner|partner name|publisher|publisher name)$/i.test(text)
+    || [HEADER_NAME_ZH, HEADER_TYPE_ZH, HEADER_JOINED_ZH, HEADER_INVITE_SENT_ZH].includes(text);
 }
 
 function headerIndex(headers, patterns) {
-  return headers.findIndex((header) => patterns.some((pattern) => pattern.test(header)));
+  return headers.findIndex((header) => patterns.some((pattern) => (
+    typeof pattern === 'string' ? header === pattern : pattern.test(header)
+  )));
 }
-
 function isOne(value) {
   return String(value || '').trim() === '1';
 }
@@ -165,16 +175,16 @@ export function parsePartnerImport(text) {
     }
 
     const nameIndex = headers
-      ? headerIndex(headers, [/^联盟客$/, /^partner$/i, /^partner\s*name$/i, /^publisher\s*name$/i, /^name$/i])
+      ? headerIndex(headers, [HEADER_NAME_ZH, /^partner$/i, /^partner\s*name$/i, /^publisher\s*name$/i, /^name$/i])
       : 0;
     const typeIndex = headers
-      ? headerIndex(headers, [/^类型$/, /^type$/i, /^category$/i])
+      ? headerIndex(headers, [HEADER_TYPE_ZH, /^type$/i, /^category$/i])
       : -1;
     const joinedIndex = headers
-      ? headerIndex(headers, [/^已入驻$/, /^joined$/i, /^active$/i])
+      ? headerIndex(headers, [HEADER_JOINED_ZH, /^joined$/i, /^active$/i])
       : -1;
     const inviteSentIndex = headers
-      ? headerIndex(headers, [/^邀约发送$/, /^invitation\s*sent$/i, /^proposal\s*sent$/i])
+      ? headerIndex(headers, [HEADER_INVITE_SENT_ZH, /^invitation\s*sent$/i, /^proposal\s*sent$/i])
       : -1;
 
     const name = String(cells[nameIndex >= 0 ? nameIndex : 0] || '').trim();
@@ -258,7 +268,7 @@ async function findBrowserClient() {
       return 'file:///' + path.replace(/\\/g, '/');
     } catch {}
   }
-  throw new Error('找不到 Codex 浏览器控制模块，请确认内置浏览器可用。');
+  throw new Error('Codex browser control module was not found.');
 }
 
 export async function connectImpactTab() {
@@ -269,7 +279,7 @@ export async function connectImpactTab() {
   }
   const browsers = await agent.browsers.list();
   const iab = browsers.find((b) => b.type === 'iab') || browsers[0];
-  if (!iab) throw new Error('没有找到已打开的 Codex 内置浏览器。');
+  if (!iab) throw new Error('No Codex browser tab was found.');
   const browser = await agent.browsers.get(iab.id);
   const openTabs = await browser.user.openTabs();
   const impact = openTabs.find((t) => /impact\.com/i.test(t.url)) || openTabs[0];
@@ -282,7 +292,7 @@ export async function connectImpactTab() {
       if (/impact\.com/i.test(url)) return tab;
     } catch {}
   }
-  throw new Error('没有找到 Impact 浏览器标签页。');
+  throw new Error('No Impact browser tab was found.');
 }
 
 export async function loadUnsentPartners() {
@@ -308,52 +318,25 @@ export async function matchImportedPartnerNames(textOrNames) {
     ? { names: textOrNames, records: textOrNames.map((name) => ({ name, type: '' })), skippedRecruited: 0, skippedEmpty: 0 }
     : parsePartnerImport(textOrNames);
   const importedRecords = parsed.records || parsed.names.map((name) => ({ name, type: '' }));
-  const partners = await loadUnsentPartners();
-  const usedImported = new Set();
-  const matched = [];
-  const unmatchedNeeded = [];
-
-  for (const partner of partners) {
-    let best = null;
-    for (let index = 0; index < importedRecords.length; index += 1) {
-      if (usedImported.has(index)) continue;
-      const importedName = importedRecords[index].name;
-      const score = nameMatchScore(partner.name, importedName);
-      if (score >= 0.75 && (!best || score > best.score)) {
-        best = { index, importedName, importedType: importedRecords[index].type || '', score };
-      }
-    }
-    if (best) {
-      usedImported.add(best.index);
-      matched.push({
-        name: partner.name,
-        importedName: best.importedName,
-        importedType: best.importedType,
-        score: Number(best.score.toFixed(3)),
-        row: partner.row,
-        source: partner.source,
-        type: partner.type,
-      });
-    } else {
-      unmatchedNeeded.push({
-        name: partner.name,
-        row: partner.row,
-        source: partner.source,
-        type: partner.type,
-      });
-    }
-  }
+  const matched = importedRecords.map((record, index) => ({
+    name: record.name,
+    importedName: record.name,
+    importedType: record.type || '',
+    score: 1,
+    row: index + 1,
+    source: 'import',
+    type: record.type || '',
+  }));
 
   return {
     importedCount: importedRecords.length,
     skippedRecruited: parsed.skippedRecruited,
     skippedEmpty: parsed.skippedEmpty,
-    neededCount: partners.length,
+    neededCount: importedRecords.length,
     matched,
-    unmatchedNeeded,
+    unmatchedNeeded: [],
   };
 }
-
 async function clearMarketplaceFilters(page) {
   const clear = page.playwright.getByText('Clear all').first();
   if (await clear.isVisible().catch(() => false)) {
@@ -485,7 +468,7 @@ async function searchPartnerCard(page, partner, options = {}) {
   return { found: true, match, cards: searchResult.cards };
 }
 async function openProposalForm(page, cardIndex, options = {}) {
-  await emit(options, 'proposalForm', 'running', '正在打开邀约表单');
+  await emit(options, 'proposalForm', 'running', 'Opening proposal form');
   const card = page.playwright.locator('.iui-card').nth(cardIndex);
   if (typeof card.scrollIntoViewIfNeeded === 'function') {
     await card.scrollIntoViewIfNeeded({ timeout: 30000 }).catch(() => {});
@@ -534,7 +517,7 @@ async function openProposalForm(page, cardIndex, options = {}) {
   }).catch(() => false);
 
   if (!clicked) {
-    await emit(options, 'proposalForm', 'waiting', '已找到联盟客，请手动向下滚动并点击蓝色 Send Proposal');
+    await emit(options, 'proposalForm', 'waiting', '宸叉壘鍒拌仈鐩熷锛岃鎵嬪姩鍚戜笅婊氬姩骞剁偣鍑昏摑鑹?Send Proposal');
   }
 
   let formSrc = '';
@@ -547,16 +530,16 @@ async function openProposalForm(page, cardIndex, options = {}) {
     ));
     if (formSrc) break;
     if (attempt === 10 && clicked) {
-      await emit(options, 'proposalForm', 'waiting', '还没进入表单，请手动点击蓝色 Send Proposal');
+      await emit(options, 'proposalForm', 'waiting', '杩樻病杩涘叆琛ㄥ崟锛岃鎵嬪姩鐐瑰嚮钃濊壊 Send Proposal');
     }
   }
-  if (!formSrc) throw new Error('已打开 partner 卡片，但没有找到 Propose Contract 表单。');
+  if (!formSrc) throw new Error('Partner card opened, but proposal form was not found.');
   await page.goto(formSrc, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(async (error) => {
-    await emit(options, 'proposalForm', 'running', `表单加载较慢，继续检查表单内容：${error?.message || error}`);
+    await emit(options, 'proposalForm', 'running', `琛ㄥ崟鍔犺浇杈冩參锛岀户缁鏌ヨ〃鍗曞唴瀹癸細${error?.message || error}`);
   });
   await page.playwright.waitForLoadState({ state: 'domcontentloaded', timeout: 30000 }).catch(() => {});
   await wait(page, 4500);
-  await emit(options, 'proposalForm', 'done', '邀约表单已打开');
+  await emit(options, 'proposalForm', 'done', '閭€绾﹁〃鍗曞凡鎵撳紑');
 }
 
 async function chooseTemplateTerm(page, term, options = {}) {
@@ -819,16 +802,16 @@ async function chooseTemplateTerm(page, term, options = {}) {
   await emit(options, 'templateTerm', 'done', `Selected ${term}`);
 }
 async function chooseStartDate(page, date, options = {}) {
-  await emit(options, 'startDate', 'running', '正在选择今天作为 Start Date');
+  await emit(options, 'startDate', 'running', '姝ｅ湪閫夋嫨浠婂ぉ浣滀负 Start Date');
   await page.playwright.locator('button[data-testid="uicl-date-input"]').first().click({ timeout: 30000 });
   await wait(page, 1000);
   await page.playwright.locator('td').filter({ hasText: new RegExp(`^${date.day}$`) }).first().click({ timeout: 30000 });
   await wait(page, 1000);
-  await emit(options, 'startDate', 'done', `Start Date 已选择 ${date.year}-${date.month}-${date.day}`);
+  await emit(options, 'startDate', 'done', `Start Date 宸查€夋嫨 ${date.year}-${date.month}-${date.day}`);
 }
 
 async function choosePartnerGroup(page, groupQuery, options = {}) {
-  await emit(options, 'partnerGroup', 'running', `正在选择 ${groupQuery}`);
+  await emit(options, 'partnerGroup', 'running', `姝ｅ湪閫夋嫨 ${groupQuery}`);
   const input = page.playwright.locator('input[data-testid="uicl-tag-input-text-input"]').first();
   await input.click({ timeout: 30000 });
   await input.fill(groupQuery);
@@ -838,51 +821,51 @@ async function choosePartnerGroup(page, groupQuery, options = {}) {
   await input.press('Enter');
   await wait(page, 1200);
   const hidden = await page.playwright.evaluate(() => document.querySelector('input[name="publisherIdsGroups"]')?.value || '');
-  if (!/\["/.test(hidden)) throw new Error(`Partner Group 没有成功选中：${groupQuery}`);
-  await emit(options, 'partnerGroup', 'done', `已选择 ${groupQuery}`);
+  if (!/\["/.test(hidden)) throw new Error(`Partner Group 娌℃湁鎴愬姛閫変腑锛?{groupQuery}`);
+  await emit(options, 'partnerGroup', 'done', `宸查€夋嫨 ${groupQuery}`);
 }
 
 async function fillMessage(page, message, options = {}) {
-  await emit(options, 'message', 'running', '正在填写邀约消息');
+  await emit(options, 'message', 'running', 'Filling proposal message');
   await page.playwright.locator('textarea[name="comment"], textarea').first().fill(message);
   await wait(page, 700);
-  await emit(options, 'message', 'done', '邀约消息已填写');
+  await emit(options, 'message', 'done', '閭€绾︽秷鎭凡濉啓');
 }
 
 async function clickToLegalConfirm(page, options = {}) {
-  await emit(options, 'sendProposal', 'running', '正在点击 Send Proposal');
+  await emit(options, 'sendProposal', 'running', '姝ｅ湪鐐瑰嚮 Send Proposal');
   await page.playwright.getByText('Send Proposal').click({ timeout: 30000 });
   await wait(page, 5000);
   const snapshot = typeof page.playwright.domSnapshot === 'function'
     ? await page.playwright.domSnapshot()
     : await page.playwright.locator('body').innerText({ timeout: 30000 }).catch(() => '');
-  if (!/I understand/.test(snapshot)) throw new Error('没有出现 I understand 确认弹窗，请人工检查当前页面。');
-  await emit(options, 'sendProposal', 'done', '已停在 I understand 最终确认前');
+  if (!/I understand/.test(snapshot)) throw new Error('The final I understand confirmation dialog did not appear.');
+  await emit(options, 'sendProposal', 'done', '宸插仠鍦?I understand 鏈€缁堢‘璁ゅ墠');
 }
 
 export async function prepareByName(name, options = {}) {
-  await emit(options, 'listLookup', 'running', '正在匹配表格里的未绿勾名单');
-  const partner = await findPartnerInList(name);
+  await emit(options, 'listLookup', 'running', options.partnerOverride ? '正在使用导入表里的联盟客信息' : '正在匹配本地名单');
+  const partner = options.partnerOverride || await findPartnerInList(name);
   if (!partner) {
-    await emit(options, 'listLookup', 'failed', `未绿勾名单里找不到：${name}`);
-    throw new Error(`未绿勾名单里找不到：${name}`);
+    await emit(options, 'listLookup', 'failed', `鏈豢鍕惧悕鍗曢噷鎵句笉鍒帮細${name}`);
+    throw new Error(`鏈豢鍕惧悕鍗曢噷鎵句笉鍒帮細${name}`);
   }
 
   const manualType = String(options.manualType || '').trim();
   const config = resolveTypeConfig(partner.type) || resolveTypeConfig(manualType);
   if (!config) {
-    throw new Error(`没有 Type 映射：${partner.type || '(空)'}。可以在控制台的“手动 Type”里填写一个可识别 Type。`);
+    throw new Error('No Type mapping for: ' + (partner.type || '(empty)') + '. Use the manual Type field if needed.');
   }
   const effectiveType = resolveTypeConfig(partner.type) ? partner.type : manualType;
-  await emit(options, 'listLookup', 'done', `名单匹配成功：${partner.name}；Type：${effectiveType}`, { partner, effectiveType });
+  await emit(options, 'listLookup', 'done', 'Partner ready: ' + partner.name + '; Type: ' + effectiveType, { partner, effectiveType });
 
   const page = options.page || await connectImpactTab();
   const search = await searchPartnerCard(page, partner, options);
   if (!search.found) {
-    return { partner: partner.name, found: false, greenCheck: null, filled: false, status: 'Impact 未找到匹配对象' };
+    return { partner: partner.name, found: false, greenCheck: null, filled: false, status: 'Impact match was not found' };
   }
   if (search.match.green && options.skipWhenGreen !== false) {
-    return { partner: partner.name, matchedName: search.match.name, found: true, greenCheck: true, filled: false, status: '已是 prospects，不发送邀约' };
+    return { partner: partner.name, matchedName: search.match.name, found: true, greenCheck: true, filled: false, status: 'Already prospects; skipped invitation' };
   }
 
   await openProposalForm(page, search.match.index, options);
@@ -893,7 +876,7 @@ export async function prepareByName(name, options = {}) {
   if (options.stopBeforeSendProposalButton !== true) {
     await clickToLegalConfirm(page, options);
   } else {
-    await emit(options, 'sendProposal', 'waiting', '已填表，停在 Send Proposal 前');
+    await emit(options, 'sendProposal', 'waiting', 'Form filled, stopped before Send Proposal');
   }
 
   return {
@@ -907,10 +890,14 @@ export async function prepareByName(name, options = {}) {
     filled: true,
     templateTerm: config.term,
     partnerGroupSearch: config.groupQuery,
-    status: options.stopBeforeSendProposalButton === true ? '已填表，停在 Send Proposal 前' : '已填表，停在 I understand 最终确认前',
+    status: options.stopBeforeSendProposalButton === true ? 'Form filled, stopped before Send Proposal' : 'Form filled, stopped before final confirmation',
   };
 }
 
 export function mappings() {
   return TYPE_MAP;
 }
+
+
+
+
