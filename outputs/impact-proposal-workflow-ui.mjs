@@ -5,12 +5,13 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..').replace(/\\/
 
 export const JMGO_MESSAGE = `Join the JMGO Affiliate Program | No.1 Home Laser projector
 Hi Partner,
-We鈥檙e pleased to invite you to join the JMGO Affiliate Program on Impact.
+We're pleased to invite you to join the JMGO Affiliate Program on Impact.
 JMGO is a smart projector brand focused on redefining home entertainment through premium projection technology, portable viewing experiences, and immersive big-screen scenarios. 
-Over the past fifteen years, JMGO has refined a full stack of home-entertainment technology 锛歵he MALC鈩?triple-color laser engine, the  Dual Dynamic Iris system, and an AI-powered gimbal. Backed by 500+ patents, we've stayed devoted to a single pursuit: making true cinema effortless and accurate in every home.
+Over the past fifteen years, JMGO has refined a full stack of home-entertainment technology: the MALC triple-color laser engine, the Dual Dynamic Iris system, and an AI-powered gimbal. Backed by 500+ patents, we've stayed devoted to a single pursuit: making true cinema effortless and accurate in every home.
 
 
-Why join the JMGO Affiliate Program? 鉁?- Competitive commission: up to 10% 
+Why join the JMGO Affiliate Program?
+- Competitive commission: up to 10% 
 - High-value conversions: average order value is around $1,200, giving partners stronger revenue potential per sale 
 - Proven performance: $0.85 EPC and 2.06% conversion rate
 - Strong promotional potential: product launches, seasonal campaigns, major shopping events, and limited-time offers 
@@ -18,8 +19,9 @@ Why join the JMGO Affiliate Program? 鉁?- Competitive commission: up to 10%
 - Partner support: product information, creatives, deal details, campaign updates, and promotional materials
 
 
-馃憠 Apply here锛?https://global.jmgo.com/pages/affiliate-program
-We鈥檇 be happy to share more details and support your upcoming placements once you join.
+Apply here:
+https://global.jmgo.com/pages/affiliate-program
+We'd be happy to share more details and support your upcoming placements once you join.
 
 Best regards,
 JMGO Affiliate Team`;
@@ -252,6 +254,18 @@ async function emit(options, key, state, message, extra = {}) {
   }
 }
 
+async function checkpoint(options) {
+  if (typeof options.shouldStop === 'function' && await options.shouldStop()) {
+    throw new Error('Task stopped by user.');
+  }
+  while (typeof options.shouldPause === 'function' && await options.shouldPause()) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (typeof options.shouldStop === 'function' && await options.shouldStop()) {
+      throw new Error('Task stopped by user.');
+    }
+  }
+}
+
 async function wait(page, ms) {
   await page.playwright.waitForTimeout(ms);
 }
@@ -346,13 +360,15 @@ async function clearMarketplaceFilters(page) {
 }
 
 async function searchPartnerCard(page, partner, options = {}) {
+  await checkpoint(options);
   const searchName = impactSearchName(partner.name) || partner.name;
   await emit(options, 'impactSearch', 'running', 'Searching Impact for ' + searchName);
   await page.goto(marketplaceUrl(searchName), { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(async (error) => {
     await emit(options, 'impactSearch', 'running', 'Impact is loading slowly; continuing to inspect results: ' + (error?.message || error));
   });
   await page.playwright.waitForLoadState({ state: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await wait(page, 6500);
+  await wait(page, 10000);
+  await checkpoint(options);
 
   const input = page.playwright.locator('input[placeholder="Search"]').first();
   await input.click({ timeout: 30000 });
@@ -362,8 +378,9 @@ async function searchPartnerCard(page, partner, options = {}) {
     const text = document.body?.innerText || '';
     return document.querySelectorAll('.iui-card').length > 0
       || /\b0 items\b|\b1 item\b|\d+\s+items|Sorry! There's no data to show/i.test(text);
-  }, { timeout: 60000 }).catch(() => {});
-  await wait(page, 2500);
+  }, { timeout: 90000 }).catch(() => {});
+  await wait(page, 5000);
+  await checkpoint(options);
 
   const targetName = normalizeName(partner.name);
   const targetCompact = compactName(partner.name);
@@ -468,6 +485,7 @@ async function searchPartnerCard(page, partner, options = {}) {
   return { found: true, match, cards: searchResult.cards };
 }
 async function openProposalForm(page, cardIndex, options = {}) {
+  await checkpoint(options);
   await emit(options, 'proposalForm', 'running', 'Opening proposal form');
   const card = page.playwright.locator('.iui-card').nth(cardIndex);
   if (typeof card.scrollIntoViewIfNeeded === 'function') {
@@ -517,12 +535,13 @@ async function openProposalForm(page, cardIndex, options = {}) {
   }).catch(() => false);
 
   if (!clicked) {
-    await emit(options, 'proposalForm', 'waiting', '宸叉壘鍒拌仈鐩熷锛岃鎵嬪姩鍚戜笅婊氬姩骞剁偣鍑昏摑鑹?Send Proposal');
+    await emit(options, 'proposalForm', 'waiting', '已找到联盟客，请手动向下滚动并点击蓝色 Send Proposal');
   }
 
   let formSrc = '';
-  for (let attempt = 0; attempt < 150; attempt += 1) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     await wait(page, 1000);
+    if (attempt % 5 === 0) await checkpoint(options);
     formSrc = await page.playwright.evaluate(() => (
       Array.from(document.querySelectorAll('iframe'))
         .map((frame) => frame.src)
@@ -530,19 +549,21 @@ async function openProposalForm(page, cardIndex, options = {}) {
     ));
     if (formSrc) break;
     if (attempt === 10 && clicked) {
-      await emit(options, 'proposalForm', 'waiting', '杩樻病杩涘叆琛ㄥ崟锛岃鎵嬪姩鐐瑰嚮钃濊壊 Send Proposal');
+      await emit(options, 'proposalForm', 'waiting', '还没进入表单，请手动点击蓝色 Send Proposal');
     }
   }
   if (!formSrc) throw new Error('Partner card opened, but proposal form was not found.');
   await page.goto(formSrc, { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(async (error) => {
-    await emit(options, 'proposalForm', 'running', `琛ㄥ崟鍔犺浇杈冩參锛岀户缁鏌ヨ〃鍗曞唴瀹癸細${error?.message || error}`);
+    await emit(options, 'proposalForm', 'running', `表单加载较慢，继续检查表单内容：${error?.message || error}`);
   });
   await page.playwright.waitForLoadState({ state: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-  await wait(page, 4500);
-  await emit(options, 'proposalForm', 'done', '閭€绾﹁〃鍗曞凡鎵撳紑');
+  await wait(page, 8000);
+  await checkpoint(options);
+  await emit(options, 'proposalForm', 'done', '邀约表单已打开');
 }
 
 async function chooseTemplateTerm(page, term, options = {}) {
+  await checkpoint(options);
   await emit(options, 'templateTerm', 'running', `Selecting ${term}`);
   const selected = await page.playwright.evaluate(async (term) => {
     const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -802,16 +823,18 @@ async function chooseTemplateTerm(page, term, options = {}) {
   await emit(options, 'templateTerm', 'done', `Selected ${term}`);
 }
 async function chooseStartDate(page, date, options = {}) {
-  await emit(options, 'startDate', 'running', '姝ｅ湪閫夋嫨浠婂ぉ浣滀负 Start Date');
+  await checkpoint(options);
+  await emit(options, 'startDate', 'running', '正在选择今天作为 Start Date');
   await page.playwright.locator('button[data-testid="uicl-date-input"]').first().click({ timeout: 30000 });
   await wait(page, 1000);
   await page.playwright.locator('td').filter({ hasText: new RegExp(`^${date.day}$`) }).first().click({ timeout: 30000 });
   await wait(page, 1000);
-  await emit(options, 'startDate', 'done', `Start Date 宸查€夋嫨 ${date.year}-${date.month}-${date.day}`);
+  await emit(options, 'startDate', 'done', `Start Date 已选择 ${date.year}-${date.month}-${date.day}`);
 }
 
 async function choosePartnerGroup(page, groupQuery, options = {}) {
-  await emit(options, 'partnerGroup', 'running', `姝ｅ湪閫夋嫨 ${groupQuery}`);
+  await checkpoint(options);
+  await emit(options, 'partnerGroup', 'running', `正在选择 ${groupQuery}`);
   const input = page.playwright.locator('input[data-testid="uicl-tag-input-text-input"]').first();
   await input.click({ timeout: 30000 });
   await input.fill(groupQuery);
@@ -821,34 +844,37 @@ async function choosePartnerGroup(page, groupQuery, options = {}) {
   await input.press('Enter');
   await wait(page, 1200);
   const hidden = await page.playwright.evaluate(() => document.querySelector('input[name="publisherIdsGroups"]')?.value || '');
-  if (!/\["/.test(hidden)) throw new Error(`Partner Group 娌℃湁鎴愬姛閫変腑锛?{groupQuery}`);
-  await emit(options, 'partnerGroup', 'done', `宸查€夋嫨 ${groupQuery}`);
+  if (!/\["/.test(hidden)) throw new Error(`Partner Group 没有成功选中：${groupQuery}`);
+  await emit(options, 'partnerGroup', 'done', `已选择 ${groupQuery}`);
 }
 
 async function fillMessage(page, message, options = {}) {
+  await checkpoint(options);
   await emit(options, 'message', 'running', 'Filling proposal message');
   await page.playwright.locator('textarea[name="comment"], textarea').first().fill(message);
   await wait(page, 700);
-  await emit(options, 'message', 'done', '閭€绾︽秷鎭凡濉啓');
+  await emit(options, 'message', 'done', '邀约消息已填写');
 }
 
 async function clickToLegalConfirm(page, options = {}) {
-  await emit(options, 'sendProposal', 'running', '姝ｅ湪鐐瑰嚮 Send Proposal');
+  await checkpoint(options);
+  await emit(options, 'sendProposal', 'running', '正在点击 Send Proposal');
   await page.playwright.getByText('Send Proposal').click({ timeout: 30000 });
   await wait(page, 5000);
   const snapshot = typeof page.playwright.domSnapshot === 'function'
     ? await page.playwright.domSnapshot()
     : await page.playwright.locator('body').innerText({ timeout: 30000 }).catch(() => '');
   if (!/I understand/.test(snapshot)) throw new Error('The final I understand confirmation dialog did not appear.');
-  await emit(options, 'sendProposal', 'done', '宸插仠鍦?I understand 鏈€缁堢‘璁ゅ墠');
+  await emit(options, 'sendProposal', 'done', '已停在 I understand 最终确认前');
 }
 
 export async function prepareByName(name, options = {}) {
+  await checkpoint(options);
   await emit(options, 'listLookup', 'running', options.partnerOverride ? '正在使用导入表里的联盟客信息' : '正在匹配本地名单');
   const partner = options.partnerOverride || await findPartnerInList(name);
   if (!partner) {
-    await emit(options, 'listLookup', 'failed', `鏈豢鍕惧悕鍗曢噷鎵句笉鍒帮細${name}`);
-    throw new Error(`鏈豢鍕惧悕鍗曢噷鎵句笉鍒帮細${name}`);
+    await emit(options, 'listLookup', 'failed', `未在名单里找到：${name}`);
+    throw new Error(`未在名单里找到：${name}`);
   }
 
   const manualType = String(options.manualType || '').trim();
@@ -861,6 +887,7 @@ export async function prepareByName(name, options = {}) {
 
   const page = options.page || await connectImpactTab();
   const search = await searchPartnerCard(page, partner, options);
+  await checkpoint(options);
   if (!search.found) {
     return { partner: partner.name, found: false, greenCheck: null, filled: false, status: 'Impact match was not found' };
   }
