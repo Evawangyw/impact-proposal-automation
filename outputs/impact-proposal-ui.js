@@ -113,7 +113,7 @@ function renderChoice(job) {
   const cancel = document.createElement('button');
   cancel.type = 'button';
   cancel.className = 'choice-option cancel';
-  cancel.textContent = '都不是，停止这个任务';
+  cancel.textContent = '跳过当前，继续下一个';
   cancel.addEventListener('click', () => submitChoice(job.id, -1));
   choiceOptions.appendChild(cancel);
 }
@@ -426,7 +426,7 @@ skipQueueButton?.addEventListener('click', async () => {
   setBadge(batchStatus, '跳过当前中', 'running');
   try {
     await sendControl('skip');
-    resultText.textContent = `${resultText.textContent}\n\n已发送跳过：当前联盟客会在下一个检查点停止，队列会继续下一个。`;
+    resultText.textContent = `${resultText.textContent}\n\n已发送跳过：当前联盟客会标记为已跳过，队列会继续下一个。`;
   } catch (error) {
     resultText.textContent = error.message || String(error);
   }

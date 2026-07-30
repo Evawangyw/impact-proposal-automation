@@ -336,6 +336,10 @@ function createServer() {
         job.choiceResolver = null;
         job.choiceRequest = null;
         job.status = 'running';
+        if (choiceIndex < 0) {
+          job.cancelled = true;
+          job.error = '已跳过';
+        }
         job.updatedAt = new Date().toISOString();
         resolver({ choiceIndex });
         return json(res, 200, { ok: true });
